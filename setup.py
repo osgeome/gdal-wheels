@@ -3,7 +3,8 @@
 import os
 import platform
 import sys
-from setuptools import setup, Extension
+import glob
+from setuptools import setup, Extension, find_packages
 
 # Get GDAL installation directory from environment
 gdal_home = os.environ.get('GDAL_HOME', '')
@@ -30,6 +31,9 @@ if is_windows:
     ]
     libraries = ['gdal_i']
     extra_compile_args = ['/EHsc', '/bigobj', '/MP']
+    
+    # Add Windows-specific libraries
+    libraries.extend(['ws2_32', 'crypt32'])
 else:
     # Unix-specific paths and libraries
     lib_dirs = [os.path.join(gdal_home, 'lib')]
@@ -37,9 +41,12 @@ else:
     libraries = ['gdal']
     extra_compile_args = ['-std=c++11']
 
+# Get GDAL version
+gdal_version = os.environ.get('GDAL_VERSION', '3.10.2').lstrip('v')
+
 # Define the extension module
 gdal_module = Extension(
-    '_gdal',
+    'osgeo._gdal',
     sources=['gdal_wrap.c'],
     include_dirs=include_dirs,
     library_dirs=lib_dirs,
@@ -48,18 +55,53 @@ gdal_module = Extension(
     extra_link_args=extra_link_args
 )
 
+ogr_module = Extension(
+    'osgeo._ogr',
+    sources=['ogr_wrap.c'],
+    include_dirs=include_dirs,
+    library_dirs=lib_dirs,
+    libraries=libraries,
+    extra_compile_args=extra_compile_args,
+    extra_link_args=extra_link_args
+)
+
+osr_module = Extension(
+    'osgeo._osr',
+    sources=['osr_wrap.c'],
+    include_dirs=include_dirs,
+    library_dirs=lib_dirs,
+    libraries=libraries,
+    extra_compile_args=extra_compile_args,
+    extra_link_args=extra_link_args
+)
+
+gdalconst_module = Extension(
+    'osgeo._gdalconst',
+    sources=['gdalconst_wrap.c'],
+    include_dirs=include_dirs,
+    library_dirs=lib_dirs,
+    libraries=libraries,
+    extra_compile_args=extra_compile_args,
+    extra_link_args=extra_link_args
+)
+
+# Check if the SWIG-generated files exist
+for source in ['gdal_wrap.c', 'ogr_wrap.c', 'osr_wrap.c', 'gdalconst_wrap.c']:
+    if not os.path.exists(source):
+        print(f"Warning: {source} not found. The wheel might not include all GDAL functionality.")
+
 # Setup configuration
 setup(
-    name='gdal',
-    version=os.environ.get('GDAL_VERSION', '3.10.2').lstrip('v'),
+    name='GDAL',
+    version=gdal_version,
     description='GDAL: Geospatial Data Abstraction Library',
     author='OSGeo',
     author_email='gdal-dev@lists.osgeo.org',
     url='https://gdal.org',
     license='MIT',
     packages=['osgeo'],
-    ext_modules=[gdal_module],
-    py_modules=['gdal', 'ogr', 'osr', 'gdalconst'],
+    ext_modules=[gdal_module, ogr_module, osr_module, gdalconst_module],
+    package_data={'': ['*.dll', '*.so', '*.dylib']},
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',

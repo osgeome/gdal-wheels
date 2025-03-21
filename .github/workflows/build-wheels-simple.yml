@@ -83,6 +83,10 @@ jobs:
           GDAL_SOURCE: D:/a/gdal-wheels/gdal-wheels/gdal-source
           GDAL_HOME: D:/a/gdal-wheels/gdal-wheels/gdal-source/install
           PYTHON_VERSION: ${{ github.event.inputs.python_version || '3.11' }}
+          OPENSSL_ROOT_DIR: C:/vcpkg/installed/x64-windows
+          OPENSSL_INCLUDE_DIR: C:/vcpkg/installed/x64-windows/include
+          OPENSSL_LIBRARIES: C:/vcpkg/installed/x64-windows/lib
+          PROJ_LIB: C:/vcpkg/installed/x64-windows/share/proj
         run: |
           cd gdal-wheels
           python build_wheels.py

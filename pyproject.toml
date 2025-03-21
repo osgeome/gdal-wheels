@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "numpy"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GDAL"
+dynamic = ["version"]
+description = "GDAL: Geospatial Data Abstraction Library"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "OSGeo", email = "gdal-dev@lists.osgeo.org"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+    "numpy",
+]
+
+[project.urls]
+Homepage = "https://gdal.org"
+Documentation = "https://gdal.org/api/python_bindings.html"
+Repository = "https://github.com/OSGeo/gdal"

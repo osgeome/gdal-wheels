@@ -88,10 +88,97 @@ def build_gdal(gdal_source, gdal_install):
         run_command(['cmake', '--build', '.'], cwd=build_dir)
         run_command(['cmake', '--install', '.'], cwd=build_dir)
 
+def prepare_python_bindings(gdal_source):
+    """Prepare the Python bindings for wheel building"""
+    # Directory containing Python bindings
+    python_dir = os.path.join(gdal_source, 'swig', 'python')
+    
+    # Possible locations for SWIG-generated files
+    swig_locations = [
+        python_dir,
+        os.path.join(gdal_source, 'build', 'swig', 'python'),
+        os.path.join(gdal_source, 'build', 'Release', 'swig', 'python')
+    ]
+    
+    # Find SWIG-generated wrapper files
+    wrapper_files = {
+        'gdal_wrap.c': None,
+        'ogr_wrap.c': None,
+        'osr_wrap.c': None,
+        'gdalconst_wrap.c': None
+    }
+    
+    for location in swig_locations:
+        for wrapper in wrapper_files.keys():
+            if wrapper_files[wrapper] is None:
+                wrapper_path = os.path.join(location, wrapper)
+                if os.path.exists(wrapper_path):
+                    wrapper_files[wrapper] = wrapper_path
+    
+    # Check if we found all wrapper files
+    missing_wrappers = [w for w, p in wrapper_files.items() if p is None]
+    if missing_wrappers:
+        print(f"Warning: Could not find the following SWIG-generated files: {', '.join(missing_wrappers)}")
+        print("The wheel might not include all GDAL functionality.")
+    
+    # Copy wrapper files to python directory
+    for wrapper, path in wrapper_files.items():
+        if path and path != os.path.join(python_dir, wrapper):
+            shutil.copy2(path, os.path.join(python_dir, wrapper))
+    
+    # Create the osgeo directory if it doesn't exist
+    osgeo_dir = os.path.join(python_dir, 'osgeo')
+    os.makedirs(osgeo_dir, exist_ok=True)
+    
+    # Find Python module files
+    module_files = {
+        'gdal.py': None,
+        'ogr.py': None,
+        'osr.py': None,
+        'gdalconst.py': None
+    }
+    
+    for location in swig_locations:
+        for module in module_files.keys():
+            if module_files[module] is None:
+                module_path = os.path.join(location, module)
+                if os.path.exists(module_path):
+                    module_files[module] = module_path
+    
+    # Copy module files to osgeo directory
+    for module, path in module_files.items():
+        if path:
+            shutil.copy2(path, os.path.join(osgeo_dir, module))
+    
+    # Create __init__.py in osgeo directory
+    with open(os.path.join(osgeo_dir, '__init__.py'), 'w') as f:
+        f.write("""# GDAL/OGR Python bindings
+from osgeo.gdal import *
+from osgeo.ogr import *
+from osgeo.osr import *
+from osgeo.gdalconst import *
+""")
+    
+    # Copy our setup.py and pyproject.toml to the python directory
+    for file in ['setup.py', 'pyproject.toml']:
+        src = os.path.join(os.getcwd(), file)
+        if os.path.exists(src):
+            shutil.copy2(src, python_dir)
+        else:
+            print(f"Warning: {file} not found in current directory")
+    
+    # Copy README.md if it exists
+    readme = os.path.join(os.getcwd(), 'README.md')
+    if os.path.exists(readme):
+        shutil.copy2(readme, python_dir)
+
 def build_wheel(gdal_source):
     """Build Python wheel for GDAL"""
     # Directory containing Python bindings
     python_dir = os.path.join(gdal_source, 'swig', 'python')
+    
+    # Prepare Python bindings
+    prepare_python_bindings(gdal_source)
     
     # Build the wheel
     run_command(['pip', 'install', '--upgrade', 'pip', 'wheel', 'setuptools', 'numpy'], cwd=python_dir)
@@ -123,6 +210,7 @@ def main():
         print(f"Built wheel: {wheel.name} ({size_mb:.2f} MB)")
         if size_mb < 1:
             print(f"Warning: Wheel size is suspiciously small ({size_mb:.2f} MB)")
+            sys.exit(1)
 
 if __name__ == '__main__':
     main()
