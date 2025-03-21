@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       python_version:
-        description: 'Python version to build for (default: 3.10)'
+        description: 'Python version to build for (default: 3.11)'
         required: false
-        default: '3.10'
+        default: '3.11'
         type: string
       gdal_version:
         description: 'GDAL version to build (default: latest released)'
@@ -28,7 +28,7 @@ env:
 
 jobs:
   build_wheels:
-    name: Build wheels for Python ${{ github.event.inputs.python_version || '3.10' }}
+    name: Build wheels for Python ${{ github.event.inputs.python_version || '3.11' }}
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -57,7 +57,7 @@ jobs:
           environment-file: gdal-wheels/environment.yml
           environment-name: ${{ env.MICROMAMBA_ENV_NAME }}
           create-args: >-
-            python=${{ github.event.inputs.python_version || '3.10' }}
+            python=${{ github.event.inputs.python_version || '3.11' }}
           init-shell: >-
             bash
             powershell
@@ -69,7 +69,7 @@ jobs:
         id: cibw-build
         shell: bash
         run: |
-          PYTHON_VERSION="${{ github.event.inputs.python_version || '3.10' }}"
+          PYTHON_VERSION="${{ github.event.inputs.python_version || '3.11' }}"
           if [ "$PYTHON_VERSION" == "3.9" ]; then
             echo "cibw_build=cp39-win_amd64" >> $GITHUB_OUTPUT
           elif [ "$PYTHON_VERSION" == "3.10" ]; then
@@ -79,8 +79,40 @@ jobs:
           elif [ "$PYTHON_VERSION" == "3.12" ]; then
             echo "cibw_build=cp312-win_amd64" >> $GITHUB_OUTPUT
           else
-            echo "cibw_build=cp310-win_amd64" >> $GITHUB_OUTPUT
+            echo "cibw_build=cp311-win_amd64" >> $GITHUB_OUTPUT
           fi
+
+      - name: Build GDAL from source
+        shell: bash -l {0}
+        run: |
+          # Activate micromamba environment
+          eval "$(micromamba shell hook --shell=bash)"
+          micromamba activate ${{ env.MICROMAMBA_ENV_NAME }}
+          
+          # Print environment information
+          echo "Python version: $(python --version)"
+          echo "MAMBA_ROOT_PREFIX: $MAMBA_ROOT_PREFIX"
+          
+          # Build GDAL from source
+          cd gdal-source
+          mkdir build && cd build
+          
+          # Configure GDAL build
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$MAMBA_ROOT_PREFIX/envs/${{ env.MICROMAMBA_ENV_NAME }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PYTHON_BINDINGS=OFF \
+            -DGDAL_USE_JPEG=ON \
+            -DGDAL_USE_PNG=ON \
+            -DGDAL_USE_ZLIB=ON
+          
+          # Build and install GDAL
+          cmake --build . --config Release --parallel 4
+          cmake --install .
+          
+          # Return to the root directory
+          cd ../..
 
       - name: Build wheels
         shell: bash -l {0}
@@ -98,91 +130,53 @@ jobs:
           echo "Python version: $(python --version)"
           echo "MAMBA_ROOT_PREFIX: $MAMBA_ROOT_PREFIX"
           
-          # Set up environment paths using MAMBA_ROOT_PREFIX
-          MAMBA_ROOT="${MAMBA_ROOT_PREFIX:-/c/Users/runneradmin/micromamba}"
-          ENV_NAME="${{ env.MICROMAMBA_ENV_NAME }}"
+          # Set up environment paths
+          CONDA_PREFIX="${CONDA_PREFIX:-$MAMBA_ROOT_PREFIX/envs/${{ env.MICROMAMBA_ENV_NAME }}}"
           
-          # Windows paths for micromamba environment
-          MAMBA_ENV_PATH="${MAMBA_ROOT}/envs/${ENV_NAME}"
-          MAMBA_LIBRARY_PATH="${MAMBA_ENV_PATH}/Library"
+          # OS-specific paths
+          if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+            # Windows paths
+            GDAL_LIB="${CONDA_PREFIX}/Library/lib"
+            GDAL_INCLUDE="${CONDA_PREFIX}/Library/include"
+            GDAL_BIN="${CONDA_PREFIX}/Library/bin"
+            GDAL_SHARE="${CONDA_PREFIX}/Library/share/gdal"
+            PROJ_SHARE="${CONDA_PREFIX}/Library/share/proj"
+            GDAL_PLUGINS="${GDAL_LIB}/gdalplugins"
+          else
+            # Unix paths
+            GDAL_LIB="${CONDA_PREFIX}/lib"
+            GDAL_INCLUDE="${CONDA_PREFIX}/include"
+            GDAL_BIN="${CONDA_PREFIX}/bin"
+            GDAL_SHARE="${CONDA_PREFIX}/share/gdal"
+            PROJ_SHARE="${CONDA_PREFIX}/share/proj"
+            GDAL_PLUGINS="${GDAL_LIB}/gdalplugins"
+          fi
           
-          # GDAL specific paths
-          GDAL_BIN="${MAMBA_LIBRARY_PATH}/bin"
-          GDAL_LIB="${MAMBA_LIBRARY_PATH}/lib"
-          GDAL_INCLUDE="${MAMBA_LIBRARY_PATH}/include"
-          GDAL_PLUGINS="${GDAL_LIB}/gdalplugins"
-          GDAL_SHARE="${MAMBA_LIBRARY_PATH}/share/gdal"
-          PROJ_SHARE="${MAMBA_LIBRARY_PATH}/share/proj"
-          
-          echo "Using MAMBA_ROOT: ${MAMBA_ROOT}"
-          echo "Using MAMBA_ENV_PATH: ${MAMBA_ENV_PATH}"
-          echo "Using MAMBA_LIBRARY_PATH: ${MAMBA_LIBRARY_PATH}"
-          echo "Using GDAL_BIN: ${GDAL_BIN}"
+          echo "Using CONDA_PREFIX: ${CONDA_PREFIX}"
           echo "Using GDAL_LIB: ${GDAL_LIB}"
           echo "Using GDAL_INCLUDE: ${GDAL_INCLUDE}"
-          echo "Using GDAL_PLUGINS: ${GDAL_PLUGINS}"
+          echo "Using GDAL_BIN: ${GDAL_BIN}"
           echo "Using GDAL_SHARE: ${GDAL_SHARE}"
           echo "Using PROJ_SHARE: ${PROJ_SHARE}"
-          
-          # Make sure the path exists and is valid
-          if [ ! -d "${MAMBA_ENV_PATH}" ]; then
-            echo "Error: MAMBA_ENV_PATH does not exist or is not a directory"
-            exit 1
-          fi
+          echo "Using GDAL_PLUGINS: ${GDAL_PLUGINS}"
           
           # Install build dependencies
           python -m pip install --upgrade pip
           python -m pip install --upgrade cibuildwheel numpy
           
           # Check if GDAL source exists, if not clone it
-          if [ ! -d "../../gdal-source" ]; then
+          if [ ! -d "../../" ]; then
             echo "GDAL source not found. Cloning GDAL repository..."
             cd ../..
-            git clone --depth 1 --branch v3.10.2 https://github.com/OSGeo/gdal.git gdal-source
-            cd -
+            git clone --depth 1 --branch ${{ env.GDAL_VERSION }} https://github.com/OSGeo/gdal.git
+            cd swig/python
           fi
           
           # Create a build directory for GDAL Python bindings
           mkdir -p build_ext
           cd build_ext
           
-          # Create a pyproject.toml file
-          cat > pyproject.toml << 'EOF'
-          [build-system]
-          requires = ["setuptools>=67.0.0", "wheel", "numpy>=2.0.0"]
-          build-backend = "setuptools.build_meta"
-          
-          [project]
-          name = "GDAL"
-          dynamic = ["version"]
-          authors = [
-              {name = "Frank Warmerdam"},
-              {name = "Howard Butler"},
-              {name = "Even Rouault"},
-          ]
-          maintainers = [
-              {name = "GDAL contributors", email = "gdal-dev@lists.osgeo.org"},
-          ]
-          description = "GDAL: Geospatial Data Abstraction Library"
-          readme = "README.rst"
-          keywords = ["gis", "raster", "vector"]
-          license = {text = "MIT"}
-          classifiers = [
-              "Development Status :: 5 - Production/Stable",
-              "Intended Audience :: Developers",
-              "Intended Audience :: Science/Research",
-              "License :: OSI Approved :: MIT License",
-              "Operating System :: OS Independent",
-              "Programming Language :: Python :: 3",
-              "Programming Language :: C",
-              "Programming Language :: C++",
-              "Topic :: Scientific/Engineering :: GIS",
-              "Topic :: Scientific/Engineering :: Information Analysis",
-          ]
-          requires-python = ">=3.8"
-          EOF
-          
-          # Create a README.rst file
+          # Create a README.rst file (required by GDAL's pyproject.toml)
           cat > README.rst << 'EOF'
           GDAL: Geospatial Data Abstraction Library
           =========================================
@@ -194,7 +188,7 @@ jobs:
           Complete documentation is available at https://gdal.org/
           EOF
           
-          # Create a setup.py file that properly links to the GDAL libraries
+          # Create a custom setup.py file that properly links to the GDAL libraries
           cat > setup.py << 'EOF'
           from setuptools import setup, Extension
           from setuptools.command.build_ext import build_ext
@@ -270,9 +264,9 @@ jobs:
           EOF
           
           # Copy the SWIG-generated wrapper files from the GDAL source
-          if [ -d "../../gdal-source/swig/python/extensions" ]; then
-            cp -v ../../gdal-source/swig/python/extensions/*.cpp .
-            cp -v ../../gdal-source/swig/python/extensions/*.c .
+          if [ -d "../../extensions" ]; then
+            cp -v ../../extensions/*.cpp .
+            cp -v ../../extensions/*.c .
           else
             echo "SWIG-generated wrapper files not found. Creating minimal wrapper files."
             
@@ -325,8 +319,8 @@ jobs:
           mkdir -p osgeo
           
           # Check if the GDAL Python files exist
-          if [ -d "../../gdal-source/swig/python/osgeo" ]; then
-            cp -v ../../gdal-source/swig/python/osgeo/*.py osgeo/
+          if [ -d "../../osgeo" ]; then
+            cp -v ../../osgeo/*.py osgeo/
           else
             # Create minimal Python files if they don't exist
             cat > osgeo/__init__.py << 'EOF'
@@ -354,8 +348,8 @@ jobs:
           fi
           
           # Set environment variables to ensure platform wheels are built
-          export GDAL_HOME="${MAMBA_ENV_PATH}"
-          export CMAKE_PREFIX_PATH="${MAMBA_ENV_PATH}"
+          export GDAL_HOME="${CONDA_PREFIX}"
+          export CMAKE_PREFIX_PATH="${CONDA_PREFIX}"
           export GDAL_LIBRARY_PATH="${GDAL_LIB}"
           export GDAL_INCLUDE_PATH="${GDAL_INCLUDE}"
           export GDAL_CONFIG="${GDAL_BIN}/gdal-config"
@@ -390,11 +384,18 @@ jobs:
           
           # Verify the wheel file size is at least 30MB
           WHEEL_SIZE=$(du -k *.whl | awk '{print $1}')
-          
+          echo "Wheel size: ${WHEEL_SIZE}KB"
+          if [ "${WHEEL_SIZE}" -lt 30000 ]; then
+            echo "Error: Wheel file size is less than 30MB. The build may be incomplete."
+            exit 1
+          else
+            echo "Wheel file size check passed: ${WHEEL_SIZE}KB (>= 30MB)"
+          fi
+
       - name: Upload wheels as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-micromamba-python${{ github.event.inputs.python_version || '3.10' }}
+          name: wheels-micromamba-python${{ github.event.inputs.python_version || '3.11' }}
           path: gdal-source/wheelhouse/*.whl
           if-no-files-found: error
 

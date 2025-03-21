@@ -3,8 +3,8 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10  # Default Python version, will be overridden by matrix
-  - gdal=3.10.2
+  - python=3.11  # Default Python version, will be overridden by matrix
+  - gdal=3.10.2  # Used for reference, we'll build from source
   - numpy>=2.0.0  # For Python >= 3.9
   - cmake
   - wheel
@@ -12,6 +12,13 @@ dependencies:
   - pytest
   - pip
   - compilers  # For building C extensions
+  - swig  # For generating GDAL Python bindings
+  - proj  # Required for GDAL
+  - libtiff  # Required for GDAL
+  - libpng  # Required for GDAL
+  - libjpeg-turbo  # Required for GDAL
+  - zlib  # Required for GDAL
+  - libcurl  # Required for GDAL
+  - sqlite  # Required for GDAL
   - pip:
     - setuptools>=67.0.0
-    - oldest-supported-numpy  # For Python 3.8
