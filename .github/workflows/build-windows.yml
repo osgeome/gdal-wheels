@@ -1,0 +1,57 @@
+name: Build GDAL Wheels for Windows
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.10"] # Add more versions as needed
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    # Clone GDAL source
+    - name: Clone GDAL
+      run: |
+        git clone --depth 1 --branch ${{ env.GDAL_VERSION }} https://github.com/OSGeo/gdal.git gdal-source
+      env:
+        GDAL_VERSION: v3.10.2
+
+    # Copy pyproject.toml to GDAL source
+    - name: Copy pyproject.toml
+      run: cp gdal-wheels/pyproject.toml gdal-source/
+
+    # Setup micromamba
+    - uses: mamba-org/setup-micromamba@v1
+      with:
+        environment-file: gdal-wheels/environment.yml
+        environment-name: gdal-build
+        cache-environment: true
+        post-cleanup: false
+
+    # Build wheels - Important: use micromamba run to execute commands in the environment
+    - name: Build wheels
+      shell: bash -l {0}
+      run: |
+        micromamba activate gdal-build
+        cd gdal-source
+        python -m pip install --upgrade pip
+        python -m pip install --upgrade cibuildwheel
+        python -m cibuildwheel --output-dir ../../wheelhouse
+      env:
+        CIBW_BUILD: cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || '310' }}-win_amd64
+
+    # Upload wheels
+    - uses: actions/upload-artifact@v4
+      with:
+        name: wheels-windows-py${{ matrix.python-version }}
+        path: wheelhouse/*.whl
