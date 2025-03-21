@@ -98,8 +98,8 @@ jobs:
       - name: Install GDAL dependencies with vcpkg
         shell: cmd
         run: |
-          cd ${{ matrix.vcpkg-path }}
-          vcpkg install proj sqlite3 curl libtiff gdal[core] --triplet=x64-windows
+          cd C:/vcpkg
+          vcpkg install proj sqlite3 curl tiff gdal[core] --triplet=x64-windows
 
       - name: Build wheels
         env:
@@ -119,8 +119,8 @@ jobs:
           CIBW_BEFORE_BUILD: |
             python -m pip install numpy
           CIBW_ENVIRONMENT: >-
-            GDAL_HOME="${{ matrix.vcpkg-path }}/installed/x64-windows"
-            CMAKE_PREFIX_PATH="${{ matrix.vcpkg-path }}/installed/x64-windows"
+            GDAL_HOME="C:/vcpkg/installed/x64-windows"
+            CMAKE_PREFIX_PATH="C:/vcpkg/installed/x64-windows"
             GDAL_CONFIG="gdal-source/install/bin/gdal-config"
           CIBW_REPAIR_WHEEL_COMMAND: ""
           CIBW_TEST_REQUIRES: pytest
