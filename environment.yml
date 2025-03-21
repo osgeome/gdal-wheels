@@ -1,0 +1,13 @@
+name: gdal-build
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10  # Default Python version, will be overridden by matrix
+  - gdal=3.10.2
+  - numpy
+  - cmake
+  - setuptools
+  - wheel
+  - cibuildwheel
+  - pytest
