@@ -23,23 +23,10 @@ env:
   GDAL_VERSION: ${{ github.event.inputs.gdal_version || 'v3.10.2' }}
 
 jobs:
-  build_wheels:
-    name: Build wheels on ${{ matrix.os }} for Python ${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
-        python-version:
-          - '3.9.*'
-          - '3.10.*'
-          - '3.11.*'
-          - '3.12.*'
-          - '3.13.*'
-        include:
-          - os: windows-latest
-            vcpkg-path: C:/vcpkg
-
+  # First stage: Build GDAL once
+  build_gdal:
+    name: Build GDAL on Windows
+    runs-on: windows-latest
     steps:
       - name: Checkout wheels repository
         uses: actions/checkout@v4
@@ -47,13 +34,10 @@ jobs:
           path: gdal-wheels
 
       - name: Configure Git for long paths on Windows
-        if: runner.os == 'Windows'
         run: |
           git config --system core.longpaths true
 
       - name: Checkout GDAL source
-        id: checkout_gdal
-        continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: OSGeo/gdal
@@ -62,25 +46,81 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Fallback to shallow clone if full checkout fails
-        if: steps.checkout_gdal.outcome == 'failure'
+      - name: Install GDAL dependencies with vcpkg
+        shell: cmd
+        run: |
+          cd C:/vcpkg
+          vcpkg install proj sqlite3 curl tiff gdal[core] --triplet=x64-windows
+
+      - name: Build GDAL
+        shell: cmd
+        run: |
+          cd gdal-source
+          mkdir build && cd build
+          cmake -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_INSTALL_PREFIX=../install -DBUILD_SHARED_LIBS=ON -DUSE_EXTERNAL_LIBS=ON -DBUILD_PYTHON_BINDINGS=ON ..
+          cmake --build . --config Release --target python_bindings
+          cmake --build . --config Release --target install
+
+      - name: Cache GDAL build
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            gdal-source/install
+            C:/vcpkg/installed
+          key: gdal-${{ env.GDAL_VERSION }}-${{ github.sha }}
+
+  # Second stage: Build wheels for each Python version
+  build_wheels:
+    name: Build wheels for Python ${{ matrix.python-version }}
+    needs: build_gdal
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - '3.9.*'
+          - '3.10.*'
+          - '3.11.*'
+          - '3.12.*'
+          - '3.13.*'
+
+    steps:
+      - name: Checkout wheels repository
+        uses: actions/checkout@v4
+        with:
+          path: gdal-wheels
+
+      - name: Configure Git for long paths on Windows
+        run: |
+          git config --system core.longpaths true
+
+      - name: Checkout GDAL source
         uses: actions/checkout@v4
         with:
           repository: OSGeo/gdal
           ref: ${{ env.GDAL_VERSION }}
           path: gdal-source
-          fetch-depth: 1
+          fetch-depth: 0
           submodules: recursive
 
-      - name: Set up Python
+      - name: Restore GDAL build
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            gdal-source/install
+            C:/vcpkg/installed
+          key: gdal-${{ env.GDAL_VERSION }}-${{ github.sha }}
+          fail-on-cache-miss: true
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Create pyproject.toml
+        working-directory: gdal-source
         run: |
-          cd gdal-source
           echo "[build-system]" > pyproject.toml
           echo "requires = [" >> pyproject.toml
           echo "    \"setuptools>=77.0.3\"," >> pyproject.toml
@@ -95,12 +135,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install setuptools wheel build cibuildwheel numpy
 
-      - name: Install GDAL dependencies with vcpkg
-        shell: cmd
-        run: |
-          cd C:/vcpkg
-          vcpkg install proj sqlite3 curl tiff gdal[core] --triplet=x64-windows
-
       - name: Build wheels
         env:
           CIBW_BUILD: >-
@@ -110,13 +144,7 @@ jobs:
                 matrix.python-version == '3.12.*' && 'cp312-win_amd64' ||
                 matrix.python-version == '3.13.*' && 'cp313-win_amd64' }}
           CIBW_ARCHS: auto64
-          CIBW_BEFORE_ALL_WINDOWS: |
-            cd gdal-source
-            mkdir build && cd build
-            cmake -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_INSTALL_PREFIX=../install -DBUILD_SHARED_LIBS=ON -DGDAL_USE_EXTERNAL_LIBS=ON -DBUILD_PYTHON_BINDINGS=ON ..
-            cmake --build . --config Release --target python_bindings
-            cmake --build . --config Release --target install
-          CIBW_BEFORE_BUILD: |
+          CIBW_BEFORE_BUILD: >-
             python -m pip install numpy
           CIBW_ENVIRONMENT: >-
             GDAL_HOME="C:/vcpkg/installed/x64-windows"
@@ -124,8 +152,8 @@ jobs:
             GDAL_CONFIG="gdal-source/install/bin/gdal-config"
           CIBW_REPAIR_WHEEL_COMMAND: ""
           CIBW_TEST_REQUIRES: pytest
-          CIBW_TEST_COMMAND: |
-            cd {package}
+          CIBW_TEST_COMMAND: >-
+            cd {package} &&
             pytest -xvs || echo "Tests completed with warnings"
         working-directory: gdal-source/swig/python
         run: |
@@ -134,7 +162,7 @@ jobs:
       - name: Upload wheels as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-python${{ matrix.python-version }}
+          name: wheels-windows-python${{ matrix.python-version }}
           path: gdal-source/wheelhouse/*.whl
           if-no-files-found: error
 
