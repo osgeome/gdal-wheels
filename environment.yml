@@ -7,7 +7,9 @@ dependencies:
   - gdal=3.10.2
   - numpy
   - cmake
-  - setuptools>=77.0.3
   - wheel
   - cibuildwheel
   - pytest
+  - pip
+  - pip:
+    - setuptools>=77.0.3

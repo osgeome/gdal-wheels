@@ -1,6 +1,10 @@
 name: Build GDAL Wheels with Micromamba
 
 on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       python_version:
