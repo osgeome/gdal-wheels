@@ -2,8 +2,8 @@ name: Build GDAL Wheels (Simple)
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    tags:
+      - 'v*'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -58,10 +58,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install numpy setuptools wheel build cibuildwheel
 
+      - name: Remove conflicting libraries
+        run: |
+          rm -rf C:/Strawberry || true
+
       - name: Install GDAL dependencies
         run: |
           choco install -y vcpkg
-          vcpkg install proj sqlite3 curl tiff zlib openssl --triplet=x64-windows
+          vcpkg install proj sqlite3 curl tiff libpng jpeg zlib openssl --triplet=x64-windows
+          echo "VCPKG_ROOT=C:/vcpkg" >> $GITHUB_ENV
 
       - name: Set up Visual Studio environment
         shell: cmd
@@ -72,53 +77,21 @@ jobs:
           echo LIB=%LIB%>> %GITHUB_ENV%
           echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
 
-      - name: Build GDAL
+      - name: Build GDAL and wheel
         shell: cmd
-        run: |
-          cd gdal-source
-          mkdir build
-          cd build
-          cmake .. ^
-            -G "Visual Studio 17 2022" -A x64 ^
-            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
-            -DCMAKE_INSTALL_PREFIX=../install ^
-            -DBUILD_SHARED_LIBS=ON ^
-            -DBUILD_PYTHON_BINDINGS=ON ^
-            -DGDAL_USE_JPEG=ON ^
-            -DGDAL_USE_PNG=ON ^
-            -DGDAL_USE_ZLIB=ON ^
-            -DGDAL_USE_CURL=ON ^
-            -DGDAL_USE_CRYPTO=ON ^
-            -DGDAL_USE_OPENSSL=ON ^
-            -DGDAL_USE_ZLIB_INTERNAL=ON ^
-            -DACCEPT_MISSING_SQLITE3_RTREE=ON
-          cmake --build . --config Release --target python_bindings
-          cmake --build . --config Release --target install
-
-      - name: Build wheels
         env:
-          CIBW_BUILD: ${{ github.event.inputs.python_version == '3.9' && 'cp39-win_amd64' ||
-                          github.event.inputs.python_version == '3.10' && 'cp310-win_amd64' ||
-                          github.event.inputs.python_version == '3.11' && 'cp311-win_amd64' ||
-                          github.event.inputs.python_version == '3.12' && 'cp312-win_amd64' ||
-                          'cp311-win_amd64' }}
-          CIBW_ARCHS: auto64
-          CIBW_BEFORE_BUILD: "pip install numpy"
-          CIBW_ENVIRONMENT: >-
-            GDAL_HOME="D:/a/gdal-wheels/gdal-wheels/gdal-source/install"
-            GDAL_DATA="D:/a/gdal-wheels/gdal-wheels/gdal-source/install/share/gdal"
-            PROJ_LIB="C:/vcpkg/installed/x64-windows/share/proj"
-            OPENSSL_ROOT_DIR="C:/vcpkg/installed/x64-windows"
-          CIBW_REPAIR_WHEEL_COMMAND: ""
-        working-directory: gdal-source/swig/python
+          GDAL_SOURCE: D:/a/gdal-wheels/gdal-wheels/gdal-source
+          GDAL_HOME: D:/a/gdal-wheels/gdal-wheels/gdal-source/install
+          PYTHON_VERSION: ${{ github.event.inputs.python_version || '3.11' }}
         run: |
-          python -m cibuildwheel --output-dir ../../wheelhouse
+          cd gdal-wheels
+          python build_wheels.py
 
       - name: Upload wheels as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wheels-simple-python${{ github.event.inputs.python_version || '3.11' }}
-          path: gdal-source/wheelhouse/*.whl
+          path: gdal-wheels/wheelhouse/*.whl
           if-no-files-found: error
 
   create_release:

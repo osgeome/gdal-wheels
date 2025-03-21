@@ -1,49 +1,53 @@
 # GDAL Wheels
 
-This repository contains GitHub Actions workflows for building GDAL Python wheels using Micromamba.
+This repository contains GitHub Actions workflows for building GDAL Python wheels for Windows.
 
 ## Overview
 
 The build process uses the native GDAL Python bindings from the [GDAL repository](https://github.com/OSGeo/gdal) and builds wheels for various Python versions.
 
-## Build Process
+## Simplified Build Process
 
-The workflow:
+We've created a simplified approach for building GDAL wheels on Windows:
 
-1. Checks out this repository and the GDAL source code
-2. Sets up a Micromamba environment with the necessary dependencies
-3. Builds wheels using cibuildwheel in the GDAL source directory
-4. Uploads the built wheels as artifacts and creates releases for tagged versions
+1. Uses vcpkg for dependency management (simpler than Micromamba)
+2. Direct Python setup with GitHub's built-in actions
+3. Streamlined CMake configuration
+4. Custom build script that handles the entire process
 
-## Dependencies
+### Key Files
 
-The build environment uses the following key dependencies:
-
-- GDAL (from conda-forge)
-- NumPy 2.0.0+ (for Python 3.9+)
-- oldest-supported-numpy (for Python 3.8)
-- setuptools 67.0.0+
-- wheel
-- cibuildwheel
-- OpenSSL (required for GDAL cryptographic functions)
+- `build_wheels.py`: A Python script that handles the entire build process
+- `setup.py`: A simplified setup file for building the Python bindings
+- `.github/workflows/build-wheels-simple.yml`: The GitHub Actions workflow file
 
 ## Usage
 
-You can trigger a build manually from the GitHub Actions tab by selecting the "Build GDAL Wheels with Micromamba" workflow and providing:
+You can trigger a build manually from the GitHub Actions tab by selecting the "Build GDAL Wheels (Simple)" workflow and providing:
 
 - Python version (default: 3.11)
 - GDAL version (default: v3.10.2)
 
+## Dependencies
+
+The build process installs these dependencies via vcpkg:
+
+- proj
+- sqlite3
+- curl
+- tiff
+- libpng
+- jpeg
+- zlib
+- openssl
+
 ## Troubleshooting
 
-### OpenSSL Linking Issues
+### Common Issues
 
-If you encounter linking errors related to OpenSSL functions (e.g., `EVP_PKEY_get_size`), make sure:
-
-1. OpenSSL is included in the environment dependencies
-2. The CMake build includes `-DGDAL_USE_CRYPTO=ON -DGDAL_USE_OPENSSL=ON`
-3. OpenSSL paths are properly set in the environment variables
-4. The setup.py file includes OpenSSL libraries in the extension configuration
+1. **Missing DLLs**: Make sure the PATH includes both the GDAL bin directory and the vcpkg bin directory
+2. **CMake Configuration Errors**: Check that all required dependencies are properly installed via vcpkg
+3. **Small Wheel Size**: If the wheel is suspiciously small (<1MB), the Python bindings weren't properly included
 
 ## Documentation
 
