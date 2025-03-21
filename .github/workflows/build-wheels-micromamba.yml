@@ -16,7 +16,7 @@ on:
       gdal_version:
         description: 'GDAL version to build (default: latest released)'
         required: false
-        default: ''
+        default: 'v3.10.2'
         type: string
 
 env:
@@ -61,10 +61,6 @@ jobs:
         cache-environment: true
         post-cleanup: 'all'
         log-level: info
-
-    - name: Copy pyproject.toml to GDAL source
-      run: |
-        cp gdal-wheels/pyproject.toml gdal-source/
 
     - name: Determine CIBW_BUILD
       id: cibw-build
