@@ -11,6 +11,7 @@ dependencies:
   - cibuildwheel
   - pytest
   - pip
+  - compilers  # For building C extensions
   - pip:
     - setuptools>=67.0.0
     - oldest-supported-numpy  # For Python 3.8
