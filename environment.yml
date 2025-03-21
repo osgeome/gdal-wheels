@@ -20,5 +20,6 @@ dependencies:
   - zlib  # Required for GDAL
   - libcurl  # Required for GDAL
   - sqlite  # Required for GDAL
+  - openssl  # Required for GDAL SHA256 functions
   - pip:
-    - setuptools>=67.0.0
+    - setuptools

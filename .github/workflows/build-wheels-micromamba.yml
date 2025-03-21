@@ -82,6 +82,24 @@ jobs:
             echo "cibw_build=cp311-win_amd64" >> $GITHUB_OUTPUT
           fi
 
+      - name: Remove conflicting libraries (Windows)
+        if: runner.os == 'Windows'
+        shell: bash -l {0}
+        run: |
+          rm -rf C:/Strawberry || /bin/true
+
+      - name: Set up Visual Studio environment (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          if "${{ runner.os }}" == "Windows" (
+            CALL "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64
+            echo PATH=%PATH%>> %GITHUB_ENV%
+            echo INCLUDE=%INCLUDE%>> %GITHUB_ENV%
+            echo LIB=%LIB%>> %GITHUB_ENV%
+            echo LIBPATH=%LIBPATH%>> %GITHUB_ENV%
+          )
+
       - name: Build GDAL from source
         shell: bash -l {0}
         run: |
@@ -98,14 +116,38 @@ jobs:
           mkdir build && cd build
           
           # Configure GDAL build
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$MAMBA_ROOT_PREFIX/envs/${{ env.MICROMAMBA_ENV_NAME }} \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_PYTHON_BINDINGS=OFF \
-            -DGDAL_USE_JPEG=ON \
-            -DGDAL_USE_PNG=ON \
-            -DGDAL_USE_ZLIB=ON
+          if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+            # Windows-specific CMake configuration
+            cmake .. \
+              -G "Visual Studio 17 2022" -A x64 \
+              -DCMAKE_INSTALL_PREFIX=$MAMBA_ROOT_PREFIX/envs/${{ env.MICROMAMBA_ENV_NAME }} \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DBUILD_PYTHON_BINDINGS=OFF \
+              -DGDAL_USE_JPEG=ON \
+              -DGDAL_USE_PNG=ON \
+              -DGDAL_USE_ZLIB=ON \
+              -DGDAL_USE_CURL=ON \
+              -DGDAL_USE_CRYPTO=ON \
+              -DGDAL_USE_OPENSSL=ON \
+              -DGDAL_USE_ZLIB_INTERNAL=ON \
+              -DCMAKE_C_FLAGS="/WX /MP" \
+              -DCMAKE_CXX_FLAGS="/WX /MP" \
+              -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}/Library"
+          else
+            # Unix-specific CMake configuration
+            cmake .. \
+              -DCMAKE_INSTALL_PREFIX=$MAMBA_ROOT_PREFIX/envs/${{ env.MICROMAMBA_ENV_NAME }} \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DBUILD_PYTHON_BINDINGS=OFF \
+              -DGDAL_USE_JPEG=ON \
+              -DGDAL_USE_PNG=ON \
+              -DGDAL_USE_ZLIB=ON \
+              -DGDAL_USE_CURL=ON \
+              -DGDAL_USE_CRYPTO=ON \
+              -DGDAL_USE_OPENSSL=ON
+          fi
           
           # Build and install GDAL
           cmake --build . --config Release --parallel 4
@@ -134,23 +176,45 @@ jobs:
           # Set up environment paths
           CONDA_PREFIX="${CONDA_PREFIX:-$MAMBA_ROOT_PREFIX/envs/${{ env.MICROMAMBA_ENV_NAME }}}"
           
-          # OS-specific paths
+          # Set environment variables for GDAL
           if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
             # Windows paths
-            GDAL_LIB="${CONDA_PREFIX}/Library/lib"
-            GDAL_INCLUDE="${CONDA_PREFIX}/Library/include"
-            GDAL_BIN="${CONDA_PREFIX}/Library/bin"
-            GDAL_SHARE="${CONDA_PREFIX}/Library/share/gdal"
-            PROJ_SHARE="${CONDA_PREFIX}/Library/share/proj"
-            GDAL_PLUGINS="${GDAL_LIB}/gdalplugins"
+            export GDAL_HOME="${CONDA_PREFIX}"
+            export CMAKE_PREFIX_PATH="${CONDA_PREFIX}/Library"
+            export GDAL_LIB="${CONDA_PREFIX}/Library/lib"
+            export GDAL_INCLUDE="${CONDA_PREFIX}/Library/include"
+            export GDAL_BIN="${CONDA_PREFIX}/Library/bin"
+            export GDAL_SHARE="${CONDA_PREFIX}/Library/share/gdal"
+            export PROJ_SHARE="${CONDA_PREFIX}/Library/share/proj"
+            export GDAL_PLUGINS="${CONDA_PREFIX}/Library/lib/gdalplugins"
+            
+            # Set OpenSSL paths for Windows
+            export OPENSSL_ROOT_DIR="${CONDA_PREFIX}/Library"
+            export OPENSSL_INCLUDE_DIR="${CONDA_PREFIX}/Library/include"
+            export OPENSSL_LIBRARIES="${CONDA_PREFIX}/Library/lib"
+            
+            # Add important directories to PATH
+            export PATH="${CONDA_PREFIX}/Library/bin:${GDAL_BIN}:${OPENSSL_ROOT_DIR}/bin:$PATH"
+            
+            # Set additional Windows-specific environment variables
+            export VS_VERSION="Visual Studio 17 2022"
+            export ARCHITECTURE="amd64"
+            export CMAKE_ARCHITECTURE="x64"
           else
             # Unix paths
-            GDAL_LIB="${CONDA_PREFIX}/lib"
-            GDAL_INCLUDE="${CONDA_PREFIX}/include"
-            GDAL_BIN="${CONDA_PREFIX}/bin"
-            GDAL_SHARE="${CONDA_PREFIX}/share/gdal"
-            PROJ_SHARE="${CONDA_PREFIX}/share/proj"
-            GDAL_PLUGINS="${GDAL_LIB}/gdalplugins"
+            export GDAL_HOME="${CONDA_PREFIX}"
+            export CMAKE_PREFIX_PATH="${CONDA_PREFIX}"
+            export GDAL_LIB="${CONDA_PREFIX}/lib"
+            export GDAL_INCLUDE="${CONDA_PREFIX}/include"
+            export GDAL_BIN="${CONDA_PREFIX}/bin"
+            export GDAL_SHARE="${CONDA_PREFIX}/share/gdal"
+            export PROJ_SHARE="${CONDA_PREFIX}/share/proj"
+            export GDAL_PLUGINS="${CONDA_PREFIX}/lib/gdalplugins"
+            
+            # Set OpenSSL paths for Unix
+            export OPENSSL_ROOT_DIR="${CONDA_PREFIX}"
+            export OPENSSL_INCLUDE_DIR="${CONDA_PREFIX}/include"
+            export OPENSSL_LIBRARIES="${CONDA_PREFIX}/lib"
           fi
           
           echo "Using CONDA_PREFIX: ${CONDA_PREFIX}"
@@ -236,50 +300,84 @@ jobs:
           # Get environment variables
           gdal_include_path = os.environ.get('GDAL_INCLUDE_PATH', '')
           gdal_library_path = os.environ.get('GDAL_LIBRARY_PATH', '')
+          openssl_include_dir = os.environ.get('OPENSSL_INCLUDE_DIR', '')
+          openssl_libraries = os.environ.get('OPENSSL_LIBRARIES', '')
+          
+          # Additional libraries to link against
+          libraries = ['gdal']
+          
+          # Platform-specific configurations
+          extra_compile_args = []
+          extra_link_args = []
+          
+          if sys.platform == 'win32':
+              # Windows-specific settings
+              libraries.extend(['libcrypto', 'libssl'])
+              
+              # Add additional Windows libraries that might be needed
+              libraries.extend(['ws2_32', 'crypt32', 'user32', 'gdi32', 'winspool', 'shell32', 'ole32', 'oleaut32', 'uuid', 'comdlg32', 'advapi32'])
+              
+              # Visual Studio compiler flags
+              extra_compile_args = ['/EHsc', '/bigobj', '/MP']
+              
+              # Add runtime library flags to match the Python build
+              import struct
+              if struct.calcsize("P") * 8 == 64:
+                  extra_compile_args.append('/D_WIN64')
+          else:
+              # Unix-specific settings
+              libraries.extend(['crypto', 'ssl'])
+              extra_compile_args = ['-std=c++11']
           
           # Define the extensions to build
           gdal_module = Extension(
               name='osgeo._gdal',
               sources=['gdal_wrap.cpp'],
-              include_dirs=[gdal_include_path, numpy.get_include()],
-              library_dirs=[gdal_library_path],
-              libraries=['gdal'],
-              extra_compile_args=['-std=c++11'],
+              include_dirs=[gdal_include_path, openssl_include_dir, numpy.get_include()],
+              library_dirs=[gdal_library_path, openssl_libraries],
+              libraries=libraries,
+              extra_compile_args=extra_compile_args,
+              extra_link_args=extra_link_args,
           )
           
           gdalconst_module = Extension(
               name='osgeo._gdalconst',
               sources=['gdalconst_wrap.c'],
-              include_dirs=[gdal_include_path, numpy.get_include()],
-              library_dirs=[gdal_library_path],
-              libraries=['gdal'],
+              include_dirs=[gdal_include_path, openssl_include_dir, numpy.get_include()],
+              library_dirs=[gdal_library_path, openssl_libraries],
+              libraries=libraries,
+              extra_compile_args=extra_compile_args,
+              extra_link_args=extra_link_args,
           )
           
           ogr_module = Extension(
               name='osgeo._ogr',
               sources=['ogr_wrap.cpp'],
-              include_dirs=[gdal_include_path, numpy.get_include()],
-              library_dirs=[gdal_library_path],
-              libraries=['gdal'],
-              extra_compile_args=['-std=c++11'],
+              include_dirs=[gdal_include_path, openssl_include_dir, numpy.get_include()],
+              library_dirs=[gdal_library_path, openssl_libraries],
+              libraries=libraries,
+              extra_compile_args=extra_compile_args,
+              extra_link_args=extra_link_args,
           )
           
           osr_module = Extension(
               name='osgeo._osr',
               sources=['osr_wrap.cpp'],
-              include_dirs=[gdal_include_path, numpy.get_include()],
-              library_dirs=[gdal_library_path],
-              libraries=['gdal'],
-              extra_compile_args=['-std=c++11'],
+              include_dirs=[gdal_include_path, openssl_include_dir, numpy.get_include()],
+              library_dirs=[gdal_library_path, openssl_libraries],
+              libraries=libraries,
+              extra_compile_args=extra_compile_args,
+              extra_link_args=extra_link_args,
           )
           
           gnm_module = Extension(
               name='osgeo._gnm',
               sources=['gnm_wrap.cpp'],
-              include_dirs=[gdal_include_path, numpy.get_include()],
-              library_dirs=[gdal_library_path],
-              libraries=['gdal'],
-              extra_compile_args=['-std=c++11'],
+              include_dirs=[gdal_include_path, openssl_include_dir, numpy.get_include()],
+              library_dirs=[gdal_library_path, openssl_libraries],
+              libraries=libraries,
+              extra_compile_args=extra_compile_args,
+              extra_link_args=extra_link_args,
           )
           
           setup(
@@ -389,37 +487,76 @@ jobs:
           export CMAKE_PREFIX_PATH="${CONDA_PREFIX}"
           export GDAL_LIBRARY_PATH="${GDAL_LIB}"
           export GDAL_INCLUDE_PATH="${GDAL_INCLUDE}"
-          export GDAL_CONFIG="${GDAL_BIN}/gdal-config"
           export GDAL_DATA="${GDAL_SHARE}"
           export PROJ_LIB="${PROJ_SHARE}"
           export GDAL_DRIVER_PATH="${GDAL_PLUGINS}"
           
+          # Set OpenSSL paths for Windows
+          if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+            export OPENSSL_ROOT_DIR="${CONDA_PREFIX}/Library"
+            export OPENSSL_INCLUDE_DIR="${CONDA_PREFIX}/Library/include"
+            export OPENSSL_LIBRARIES="${CONDA_PREFIX}/Library/lib"
+            # Add OpenSSL bin directory to PATH for DLLs
+            export PATH="${CONDA_PREFIX}/Library/bin:$PATH"
+          else
+            export OPENSSL_ROOT_DIR="${CONDA_PREFIX}"
+            export OPENSSL_INCLUDE_DIR="${CONDA_PREFIX}/include"
+            export OPENSSL_LIBRARIES="${CONDA_PREFIX}/lib"
+          fi
+          
+          # Set platform-specific build flags
+          if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+            # Windows-specific build flags
+            export CFLAGS="-I${OPENSSL_INCLUDE_DIR} -I${GDAL_INCLUDE}"
+            export CXXFLAGS="-I${OPENSSL_INCLUDE_DIR} -I${GDAL_INCLUDE}"
+            export LDFLAGS="-L${OPENSSL_LIBRARIES} -L${GDAL_LIB}"
+            
+            # Set additional Windows environment variables
+            export VCPKG_INSTALLATION_ROOT="/c/vcpkg"
+            export WindowsSdkDir="C:\\Program Files (x86)\\Windows Kits\\10\\"
+            export WindowsSDKVersion="10.0.19041.0"
+            
+            # Add MSVC compiler to PATH
+            export PATH="/c/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.35.32215/bin/Hostx64/x64:$PATH"
+          else
+            # Unix-specific build flags
+            export CFLAGS="-I${OPENSSL_INCLUDE_DIR} -I${GDAL_INCLUDE}"
+            export CXXFLAGS="-I${OPENSSL_INCLUDE_DIR} -I${GDAL_INCLUDE}"
+            export LDFLAGS="-L${OPENSSL_LIBRARIES} -L${GDAL_LIB}"
+          fi
+          
           # Print environment variables for debugging
           echo "GDAL_HOME: $GDAL_HOME"
           echo "CMAKE_PREFIX_PATH: $CMAKE_PREFIX_PATH"
-          echo "GDAL_LIBRARY_PATH: $GDAL_LIBRARY_PATH"
-          echo "GDAL_INCLUDE_PATH: $GDAL_INCLUDE_PATH"
-          echo "GDAL_CONFIG: $GDAL_CONFIG"
-          echo "GDAL_DATA: $GDAL_DATA"
-          echo "PROJ_LIB: $PROJ_LIB"
-          echo "GDAL_DRIVER_PATH: $GDAL_DRIVER_PATH"
+          echo "GDAL_LIBRARY_PATH: $GDAL_LIB"
+          echo "GDAL_INCLUDE_PATH: $GDAL_INCLUDE"
+          echo "GDAL_DATA: $GDAL_SHARE"
+          echo "PROJ_LIB: $PROJ_SHARE"
+          echo "GDAL_DRIVER_PATH: $GDAL_PLUGINS"
+          echo "OPENSSL_ROOT_DIR: $OPENSSL_ROOT_DIR"
+          echo "OPENSSL_INCLUDE_DIR: $OPENSSL_INCLUDE_DIR"
+          echo "OPENSSL_LIBRARIES: $OPENSSL_LIBRARIES"
+          echo "CFLAGS: $CFLAGS"
+          echo "CXXFLAGS: $CXXFLAGS"
+          echo "LDFLAGS: $LDFLAGS"
           
           # Run setup.py to build the GDAL Python bindings
           python setup.py build_ext --inplace
           
           # Run cibuildwheel with explicit environment variables
-          CIBW_ENVIRONMENT="GDAL_HOME='${GDAL_HOME}' CMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' GDAL_LIBRARY_PATH='${GDAL_LIBRARY_PATH}' GDAL_INCLUDE_PATH='${GDAL_INCLUDE_PATH}' GDAL_DATA='${GDAL_DATA}' PROJ_LIB='${PROJ_LIB}' GDAL_DRIVER_PATH='${GDAL_DRIVER_PATH}' GDAL_CONFIG='${GDAL_CONFIG}'" \
+          CIBW_ENVIRONMENT="GDAL_HOME='${GDAL_HOME}' CMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' GDAL_LIBRARY_PATH='${GDAL_LIB}' GDAL_INCLUDE_PATH='${GDAL_INCLUDE}' GDAL_DATA='${GDAL_SHARE}' PROJ_LIB='${PROJ_SHARE}' GDAL_DRIVER_PATH='${GDAL_PLUGINS}' OPENSSL_ROOT_DIR='${OPENSSL_ROOT_DIR}' OPENSSL_INCLUDE_DIR='${OPENSSL_INCLUDE_DIR}' OPENSSL_LIBRARIES='${OPENSSL_LIBRARIES}' CFLAGS='${CFLAGS}' CXXFLAGS='${CXXFLAGS}' LDFLAGS='${LDFLAGS}'" \
           CIBW_BEFORE_BUILD="pip install numpy" \
           CIBW_REPAIR_WHEEL_COMMAND="" \
           CIBW_TEST_REQUIRES="pytest" \
-          CIBW_TEST_COMMAND="cd {package} && pytest -xvs || echo 'Tests completed with warnings'" \
-          python -m cibuildwheel --output-dir ../../../wheelhouse
+          CIBW_TEST_COMMAND="cd {package} && pytest -xvs" \
+          CIBW_BUILD="${{ steps.cibw-build.outputs.cibw_build }}" \
+          python -m cibuildwheel --output-dir wheelhouse
           
           # Create wheelhouse directory if it doesn't exist
-          mkdir -p ../../../wheelhouse
+          mkdir -p wheelhouse
           
           # If no wheel was created, copy the built extensions to create a wheel manually
-          if [ ! -f ../../../wheelhouse/*.whl ]; then
+          if [ ! -f wheelhouse/*.whl ]; then
             echo "No wheel file found. Creating a wheel manually..."
             
             # Create a dist directory
@@ -429,11 +566,11 @@ jobs:
             python setup.py bdist_wheel
             
             # Copy the wheel to the wheelhouse directory
-            cp -v dist/*.whl ../../../wheelhouse/
+            cp -v dist/*.whl wheelhouse/
           fi
           
           # Verify the wheel file size
-          cd ../../../wheelhouse
+          cd wheelhouse
           echo "Checking wheel file size..."
           ls -lh *.whl || echo "No wheel files found"
           
