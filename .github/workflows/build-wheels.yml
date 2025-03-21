@@ -93,7 +93,7 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m uv add -g setuptools wheel build cibuildwheel numpy
+          python -m pip install setuptools wheel build cibuildwheel numpy
 
       - name: Install GDAL dependencies with vcpkg
         shell: cmd
@@ -117,7 +117,7 @@ jobs:
             cmake --build . --config Release --target python_bindings
             cmake --build . --config Release --target install
           CIBW_BEFORE_BUILD: |
-            python -m uv add numpy
+            python -m pip install numpy
           CIBW_ENVIRONMENT: >-
             GDAL_HOME="${{ matrix.vcpkg-path }}/installed/x64-windows"
             CMAKE_PREFIX_PATH="${{ matrix.vcpkg-path }}/installed/x64-windows"
