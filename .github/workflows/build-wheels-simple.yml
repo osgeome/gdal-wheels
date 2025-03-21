@@ -66,9 +66,7 @@ jobs:
       - name: Install GDAL dependencies
         shell: powershell
         run: |
-          choco install -y vcpkg
-          vcpkg install proj sqlite3 curl tiff libpng jpeg zlib openssl --triplet=x64-windows
-          echo "VCPKG_ROOT=C:/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          vcpkg install proj:x64-windows sqlite3:x64-windows curl:x64-windows tiff:x64-windows libpng:x64-windows libjpeg-turbo:x64-windows zlib:x64-windows openssl:x64-windows
 
       - name: Set up Visual Studio environment
         shell: cmd
