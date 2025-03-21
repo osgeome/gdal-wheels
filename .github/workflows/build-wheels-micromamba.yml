@@ -120,6 +120,7 @@ jobs:
           CIBW_BUILD: ${{ steps.cibw-build.outputs.cibw_build }}
           CIBW_ARCHS: auto64
           CIBW_BUILD_VERBOSITY: 1
+          CIBW_BEFORE_BUILD: "pip install numpy"
         working-directory: gdal-source/swig/python
         run: |
           # Activate micromamba environment
@@ -175,6 +176,42 @@ jobs:
           # Create a build directory for GDAL Python bindings
           mkdir -p build_ext
           cd build_ext
+          
+          # Create a pyproject.toml file with explicit numpy dependency
+          cat > pyproject.toml << 'EOF'
+          [build-system]
+          requires = ["setuptools>=67.0.0", "wheel", "numpy>=2.0.0"]
+          build-backend = "setuptools.build_meta"
+          
+          [project]
+          name = "GDAL"
+          version = "3.10.2"
+          description = "GDAL: Geospatial Data Abstraction Library"
+          readme = "README.rst"
+          authors = [
+              {name = "Frank Warmerdam"},
+              {name = "Howard Butler"},
+              {name = "Even Rouault"},
+          ]
+          maintainers = [
+              {name = "GDAL contributors", email = "gdal-dev@lists.osgeo.org"},
+          ]
+          keywords = ["gis", "raster", "vector"]
+          license = {text = "MIT"}
+          classifiers = [
+              "Development Status :: 5 - Production/Stable",
+              "Intended Audience :: Developers",
+              "Intended Audience :: Science/Research",
+              "License :: OSI Approved :: MIT License",
+              "Operating System :: OS Independent",
+              "Programming Language :: Python :: 3",
+              "Programming Language :: C",
+              "Programming Language :: C++",
+              "Topic :: Scientific/Engineering :: GIS",
+              "Topic :: Scientific/Engineering :: Information Analysis",
+          ]
+          requires-python = ">=3.8"
+          EOF
           
           # Create a README.rst file (required by GDAL's pyproject.toml)
           cat > README.rst << 'EOF'
@@ -372,18 +409,36 @@ jobs:
           
           # Run cibuildwheel with explicit environment variables
           CIBW_ENVIRONMENT="GDAL_HOME='${GDAL_HOME}' CMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' GDAL_LIBRARY_PATH='${GDAL_LIBRARY_PATH}' GDAL_INCLUDE_PATH='${GDAL_INCLUDE_PATH}' GDAL_DATA='${GDAL_DATA}' PROJ_LIB='${PROJ_LIB}' GDAL_DRIVER_PATH='${GDAL_DRIVER_PATH}' GDAL_CONFIG='${GDAL_CONFIG}'" \
+          CIBW_BEFORE_BUILD="pip install numpy" \
           CIBW_REPAIR_WHEEL_COMMAND="" \
           CIBW_TEST_REQUIRES="pytest" \
           CIBW_TEST_COMMAND="cd {package} && pytest -xvs || echo 'Tests completed with warnings'" \
           python -m cibuildwheel --output-dir ../../../wheelhouse
           
+          # Create wheelhouse directory if it doesn't exist
+          mkdir -p ../../../wheelhouse
+          
+          # If no wheel was created, copy the built extensions to create a wheel manually
+          if [ ! -f ../../../wheelhouse/*.whl ]; then
+            echo "No wheel file found. Creating a wheel manually..."
+            
+            # Create a dist directory
+            mkdir -p dist
+            
+            # Build a wheel using setuptools
+            python setup.py bdist_wheel
+            
+            # Copy the wheel to the wheelhouse directory
+            cp -v dist/*.whl ../../../wheelhouse/
+          fi
+          
           # Verify the wheel file size
           cd ../../../wheelhouse
           echo "Checking wheel file size..."
-          ls -lh *.whl
+          ls -lh *.whl || echo "No wheel files found"
           
           # Verify the wheel file size is at least 30MB
-          WHEEL_SIZE=$(du -k *.whl | awk '{print $1}')
+          WHEEL_SIZE=$(du -k *.whl 2>/dev/null | awk '{print $1}' || echo "0")
           echo "Wheel size: ${WHEEL_SIZE}KB"
           if [ "${WHEEL_SIZE}" -lt 30000 ]; then
             echo "Error: Wheel file size is less than 30MB. The build may be incomplete."
