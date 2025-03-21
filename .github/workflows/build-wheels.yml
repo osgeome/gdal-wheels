@@ -20,7 +20,7 @@ on:
         type: string
 
 env:
-  GDAL_VERSION: ${{ github.event.inputs.gdal_version || 'release/3.8.0' }}
+  GDAL_VERSION: ${{ github.event.inputs.gdal_version || 'v3.10.2' }}
 
 jobs:
   build_wheels:
