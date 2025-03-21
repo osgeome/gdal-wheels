@@ -88,23 +88,26 @@ jobs:
       env:
         CIBW_BUILD: ${{ steps.cibw-build.outputs.cibw_build }}
         CIBW_ARCHS: auto64
-        CIBW_ENVIRONMENT: >-
-          GDAL_HOME="$CONDA_PREFIX"
-          CMAKE_PREFIX_PATH="$CONDA_PREFIX"
-        CIBW_REPAIR_WHEEL_COMMAND: ""
-        CIBW_TEST_REQUIRES: pytest
-        CIBW_TEST_COMMAND: >-
-          cd {package} &&
-          pytest -xvs || echo "Tests completed with warnings"
+        CIBW_BUILD_VERBOSITY: 1
       working-directory: gdal-source/swig/python
       run: |
         # Activate micromamba environment
         eval "$(micromamba shell hook --shell=bash)"
         micromamba activate ${{ env.MICROMAMBA_ENV_NAME }}
         
-        # Build the wheels
+        # Export conda environment variables
+        CONDA_PREFIX_PATH=$(micromamba info --prefix $CONDA_PREFIX --json | python -c "import sys, json; print(json.load(sys.stdin)['prefix'])")
+        echo "Using CONDA_PREFIX_PATH: $CONDA_PREFIX_PATH"
+        
+        # Build the wheels with explicit environment paths
         python -m pip install --upgrade pip
         python -m pip install --upgrade cibuildwheel
+        
+        # Run cibuildwheel with explicit environment variables
+        CIBW_ENVIRONMENT="GDAL_HOME='$CONDA_PREFIX_PATH' CMAKE_PREFIX_PATH='$CONDA_PREFIX_PATH'" \
+        CIBW_REPAIR_WHEEL_COMMAND="" \
+        CIBW_TEST_REQUIRES="pytest" \
+        CIBW_TEST_COMMAND="cd {package} && pytest -xvs || echo 'Tests completed with warnings'" \
         python -m cibuildwheel --output-dir ../../wheelhouse
       
     - name: Upload wheels as artifacts
