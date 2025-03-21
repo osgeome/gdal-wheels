@@ -1,0 +1,115 @@
+name: Build GDAL Wheels
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: 'Python version to build for (leave empty for all)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }} for Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        python-version:
+          - '3.9.*'
+          - '3.10.*'
+          - '3.11.*'
+          - '3.12.*'
+          - '3.13.*'
+        include:
+          - os: windows-latest
+            vcpkg-path: C:/vcpkg
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m uv add -g setuptools wheel build cibuildwheel
+
+      - name: Install GDAL dependencies with vcpkg
+        shell: cmd
+        run: |
+          cd ${{ matrix.vcpkg-path }}
+          vcpkg install proj sqlite3 curl libtiff gdal[core] --triplet=x64-windows
+
+      - name: Build wheels
+        env:
+          CIBW_BUILD: >-
+            ${{ matrix.python-version == '3.9.*' && 'cp39-win_amd64' ||
+                matrix.python-version == '3.10.*' && 'cp310-win_amd64' ||
+                matrix.python-version == '3.11.*' && 'cp311-win_amd64' ||
+                matrix.python-version == '3.12.*' && 'cp312-win_amd64' ||
+                matrix.python-version == '3.13.*' && 'cp313-win_amd64' }}
+          CIBW_ARCHS: auto64
+          CIBW_BEFORE_BUILD: python -m uv add numpy
+          CIBW_ENVIRONMENT: >-
+            GDAL_HOME="${{ matrix.vcpkg-path }}/installed/x64-windows"
+            CMAKE_PREFIX_PATH="${{ matrix.vcpkg-path }}/installed/x64-windows"
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: pytest {package}/tests || true
+        run: |
+          python -m cibuildwheel --output-dir wheelhouse
+      
+      - name: Upload wheels as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-python${{ matrix.python-version }}
+          path: ./wheelhouse/*.whl
+          if-no-files-found: error
+
+  # Only triggered for tagged releases
+  create_release:
+    name: Create GitHub Release
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          name: GDAL Wheels Release ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+          
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          files: dist/*.whl
